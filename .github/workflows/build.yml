@@ -1,6 +1,11 @@
 name: Build and Release Windows Installer
+on:
+  push:
+    branches:
+      - main  # Génère les fichiers à chaque push sur la branche main
+    tags:
+      - 'v*'  # Crée une release uniquement pour les tags de version
 
-on: [push, pull_request]
 
 jobs:
   build_windows_installer:
@@ -72,7 +77,7 @@ jobs:
           path: ABBA-Installer-Windows-latest.exe
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ABBA-Installer-Windows-latest.exe
@@ -80,35 +85,74 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # build_linux:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Set up Miniconda
-  #       uses: conda-incubator/setup-miniconda@v3
-  #       with:
-  #         python-version: 3.8
-  #         conda-channels: conda-forge
-  #     - name: Install conda-constructor
-  #       run: conda install -y constructor
-  #     - name: Prepare environment
-  #       run: |
-  #         # Télécharger les binaires elastix pour Linux
-  #         wget https://github.com/SuperElastix/elastix/releases/download/5.0.1/elastix-5.0.1-linux-x86_64.tar.gz
-  #         tar -xzf elastix-5.0.1-linux-x86_64.tar.gz -C linux/
-  #         # Ajouter les modèles DeepSlice si nécessaire
-  #     - name: Build installer
-  #       run: constructor .
-  #     - name: Upload artifact
-  #       uses: actions/upload-artifact@v3
-  #       with:
-  #         name: abba-installer-linux
-  #         path: ABBA-*.sh
-      # - name: Create GitHub Release
-      #   uses: softprops/action-gh-release@v1
-      #   if: startsWith(github.ref, 'refs/tags/')
-      #   with:
-      #     files: ABBA-Installer-Windows-latest.exe
-      #     generate_release_notes: true
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  build_debian_installer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: 3.8
+          channels: conda-forge
+          conda-remove-defaults: true
+      - name: Install conda-constructor
+        run: conda install -y constructor
+      - name: Prepare Debian environment
+        run: |
+          wget https://github.com/SuperElastix/elastix/releases/download/5.0.1/elastix-5.0.1-linux-x86_64.tar.gz
+          tar -xzf elastix-5.0.1-linux-x86_64.tar.gz -C linux/
+          mkdir -p envs/deepslice/lib/python3.7/site-packages/DeepSlice/metadata/weights/
+          base_url="https://data-proxy.ebrains.eu/api/v1/buckets/deepslice/weights/"
+          models=("xception_weights_tf_dim_ordering_tf_kernels.h5" "Allen_Mixed_Best.h5" "Synthetic_data_final.hdf5")
+          for model in "${models[@]}"; do
+            url="$base_url$model"
+            dest="envs/deepslice/lib/python3.7/site-packages/DeepSlice/metadata/weights/$model"
+            if [ ! -f "$dest" ]; then
+              wget "$url" -O "$dest"
+            fi
+          done
+          tar -czvf abba-pack-linux.tar.gz img linux abba envs
+      - name: Build Debian installer
+        run: constructor .
+      - name: Rename Debian installer
+        run: |
+          installer=$(ls ABBA-*.sh)
+          if [ -n "$installer" ]; then
+            mv "$installer" "ABBA-Installer-Linux-latest.sh"
+          else
+            echo "Aucun installeur généré (fichier ABBA-*.sh introuvable)"
+            exit 1
+          fi
+      - name: Convert to .deb package
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev
+          mkdir -p abba_deb/DEBIAN
+          mkdir -p abba_deb/usr/local/abba
+          cp -r * abba_deb/usr/local/abba/
+          cat > abba_deb/DEBIAN/control <<EOF
+          Package: abba
+          Version: 0.10.7
+          Section: science
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Need to be defined
+          Description: ABBA Installer for Debian/Ubuntu
+            ABBA is a tool for advanced bioimage analysis.
+          EOF
+          dpkg-deb --build abba_deb ABBA-Installer-Debian-latest.deb
+      - name: Upload Debian installer as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ABBA-Installer-Debian
+          path: ABBA-Installer-Debian-latest.deb
+      - name: Add Debian installer to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ABBA-Installer-Debian-latest.deb
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
