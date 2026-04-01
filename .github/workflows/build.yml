@@ -1,0 +1,79 @@
+name: Build ABBA Installer
+
+on: [push, pull_request]
+
+jobs:
+  build_windows_installer:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: 3.8
+          conda-channels: conda-forge
+
+      - name: Install conda-constructor
+        run: conda install -y constructor
+
+      - name: Prepare Windows environment
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/SuperElastix/elastix/releases/download/5.0.1/elastix-5.0.1-win64.zip" -OutFile "elastix.zip"
+          Expand-Archive -Path "elastix.zip" -DestinationPath "win\elastix-5.0.1-win64"
+          .\prepare_win.bat
+
+      - name: Build installer
+        run: constructor .
+
+      - name: List generated files (debug)
+        run: dir
+
+      - name: Rename installer
+        run: |
+          $installer = Get-ChildItem -Filter "ABBA-*.exe"
+          if ($installer) {
+            Rename-Item -Path $installer.Name -NewName "ABBA-Installer-Windows-latest.exe"
+          } else {
+            Write-Error "Aucun installeur généré (fichier ABBA-*.exe introuvable)"
+            exit 1
+          }
+
+      - name: Upload installer as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ABBA-Installer-Windows
+          path: ABBA-Installer-Windows-latest.exe
+  # build_linux:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Set up Miniconda
+  #       uses: conda-incubator/setup-miniconda@v3
+  #       with:
+  #         python-version: 3.8
+  #         conda-channels: conda-forge
+  #     - name: Install conda-constructor
+  #       run: conda install -y constructor
+  #     - name: Prepare environment
+  #       run: |
+  #         # Télécharger les binaires elastix pour Linux
+  #         wget https://github.com/SuperElastix/elastix/releases/download/5.0.1/elastix-5.0.1-linux-x86_64.tar.gz
+  #         tar -xzf elastix-5.0.1-linux-x86_64.tar.gz -C linux/
+  #         # Ajouter les modèles DeepSlice si nécessaire
+  #     - name: Build installer
+  #       run: constructor .
+  #     - name: Upload artifact
+  #       uses: actions/upload-artifact@v3
+  #       with:
+  #         name: abba-installer-linux
+  #         path: ABBA-*.sh
+      # - name: Create GitHub Release
+      #   uses: softprops/action-gh-release@v1
+      #   if: startsWith(github.ref, 'refs/tags/')
+      #   with:
+      #     files: ABBA-Installer-Windows-latest.exe
+      #     generate_release_notes: true
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
