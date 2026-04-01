@@ -41,7 +41,7 @@ jobs:
           }
 
       - name: Upload installer as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ABBA-Installer-Windows
           path: ABBA-Installer-Windows-latest.exe
