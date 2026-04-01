@@ -44,6 +44,7 @@ jobs:
             } else {
               Write-Host "File $model already exists. Skipping download."
             }
+          }
 
           # 4. Créer l'archive des fichiers à inclure dans l'installeur
           tar -czvf abba-pack-win.tar.gz img win abba envs
