@@ -116,8 +116,8 @@ jobs:
 
       - name: Prepare Debian environment
         run: |
-          wget "${{ env.ELASTIX_LINUX_URL }}" -O elastix.tar.gz
-          tar -xzf elastix.tar.gz -C linux/
+          wget "${{ env.ELASTIX_LINUX_URL }}" -O elastix.tar.bz2
+          tar -xjf elastix.tar.bz2 -C linux/
           mkdir -p envs/deepslice/lib/python3.7/site-packages/DeepSlice/metadata/weights/
           models=("${{ env.MODEL1 }}" "${{ env.MODEL2 }}" "${{ env.MODEL3 }}")
           for model in "${models[@]}"; do
