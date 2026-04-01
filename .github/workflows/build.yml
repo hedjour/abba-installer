@@ -13,8 +13,10 @@ jobs:
         uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: 3.8
-          conda-channels: conda-forge
-
+          channels: conda-forge
+          conda-remove-defaults: true
+      - name: List files (debug)
+        run: dir
       - name: Install conda-constructor
         run: conda install -y constructor
 
