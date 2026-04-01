@@ -20,9 +20,9 @@ jobs:
           $content = Get-Content versions.yml -Raw
           $elastix_url = ($content -split '\n' | Select-String 'windows_url:').Line.Split(':')[1].Trim()
           $deepslice_base_url = ($content -split '\n' | Select-String 'base_url:').Line.Split(':')[1].Trim()
-          $model1 = ($content -split '\n' | Select-String 'xception_weights').Line.Split('-')[1].Trim().Replace('"', '').Replace(',', '')
-          $model2 = ($content -split '\n' | Select-String 'Allen_Mixed_Best').Line.Split('-')[1].Trim().Replace('"', '').Replace(',', '')
-          $model3 = ($content -split '\n' | Select-String 'Synthetic_data_final').Line.Split('-')[1].Trim().Replace('"', '').Replace(',', '')
+          $model1 = ($content -split '\n' | Select-String 'xception_weights').Line.Split('-')[1].Trim().Replace('"', '').Replace(',', '').Trim()
+          $model2 = ($content -split '\n' | Select-String 'Allen_Mixed_Best').Line.Split('-')[1].Trim().Replace('"', '').Replace(',', '').Trim()
+          $model3 = ($content -split '\n' | Select-String 'Synthetic_data_final').Line.Split('-')[1].Trim().Replace('"', '').Replace(',', '').Trim()
 
           echo "ELASTIX_WINDOWS_URL=$elastix_url" >> $env:GITHUB_ENV
           echo "DEEPSLICE_BASE_URL=$deepslice_base_url" >> $env:GITHUB_ENV
@@ -43,7 +43,7 @@ jobs:
       - name: Prepare Windows environment
         run: |
           Invoke-WebRequest -Uri "${{ env.ELASTIX_WINDOWS_URL }}" -OutFile "elastix.zip"
-          Expand-Archive -Path "elastix.zip" -DestinationPath "win\elastix-5.3.0-win64"
+          Expand-Archive -Path "elastix.zip" -DestinationPath "win\elastix-5.0.1-win64"
           $deepslice_weights = "envs\deepslice\lib\site-packages\DeepSlice\metadata\weights"
           New-Item -ItemType Directory -Force -Path $deepslice_weights
           $models = @("${{ env.MODEL1 }}", "${{ env.MODEL2 }}", "${{ env.MODEL3 }}")
@@ -58,6 +58,9 @@ jobs:
 
       - name: Build installer
         run: constructor .
+
+      - name: List generated files (debug)
+        run: dir
 
       - name: Rename installer
         run: |
@@ -84,7 +87,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build_debian_installer:
+          build_debian_installer:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -108,15 +111,17 @@ jobs:
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          python-version: 3.8
+          python-version: 3.10
           channels: conda-forge
           conda-remove-defaults: true
+
       - name: Install conda-constructor
         run: conda install -y constructor
 
       - name: Prepare Debian environment
         run: |
           wget "${{ env.ELASTIX_LINUX_URL }}" -O elastix.tar.bz2
+          mkdir -p linux
           tar -xjf elastix.tar.bz2 -C linux/
           mkdir -p envs/deepslice/lib/python3.7/site-packages/DeepSlice/metadata/weights/
           models=("${{ env.MODEL1 }}" "${{ env.MODEL2 }}" "${{ env.MODEL3 }}")
@@ -131,6 +136,9 @@ jobs:
 
       - name: Build Debian installer
         run: constructor .
+
+      - name: List generated files (debug)
+        run: ls -la
 
       - name: Rename Debian installer
         run: |
@@ -155,7 +163,7 @@ jobs:
           Section: science
           Priority: optional
           Architecture: amd64
-          Maintainer: Need to be defined
+          Maintainer: Need to be defined 
           Description: ABBA Installer for Debian/Ubuntu
             ABBA is a tool for advanced bioimage analysis.
           EOF
