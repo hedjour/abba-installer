@@ -98,6 +98,7 @@ jobs:
           python-version: 3.8
           channels: conda-forge
           conda-remove-defaults: true
+          conda-solver: classic
 
       - name: Install conda-constructor
         shell: bash -el {0}
