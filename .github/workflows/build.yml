@@ -7,35 +7,21 @@ on:
     tags:
       - 'v*'
 
+env:
+  ELASTIX_VERSION: "5.0.1"
+  ELASTIX_WINDOWS_URL: "https://github.com/SuperElastix/elastix/releases/download/5.0.1/elastix-5.0.1-win64.zip"
+  ELASTIX_LINUX_URL: "https://github.com/SuperElastix/elastix/releases/download/5.0.1/elastix-5.0.1-linux.tar.bz2"
+  DEEPSLICE_BASE_URL: "https://data-proxy.ebrains.eu/api/v1/buckets/deepslice/weights/"
+  DEEPSLICE_MODEL1: "xception_weights_tf_dim_ordering_tf_kernels.h5"
+  DEEPSLICE_MODEL2: "Allen_Mixed_Best.h5"
+  DEEPSLICE_MODEL3: "Synthetic_data_final.hdf5"
+
 jobs:
   build_windows_installer:
     runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Read versions config
-        id: versions
-        run: |
-          # BUG FIX 1 : Split(':')[1] tronquait les URLs contenant plusieurs ':'
-          # On utilise IndexOf + Substring pour tout récupérer après le premier ':'
-          $content = Get-Content versions.yml -Raw
-
-          $line_elastix = ($content -split '\n' | Select-String 'windows_url:').Line
-          $elastix_url = $line_elastix.Substring($line_elastix.IndexOf(':') + 1).Trim().Trim('"')
-
-          $line_base = ($content -split '\n' | Select-String 'base_url:').Line
-          $deepslice_base_url = $line_base.Substring($line_base.IndexOf(':') + 1).Trim().Trim('"')
-
-          $model1 = ($content -split '\n' | Select-String 'xception_weights').Line.Split('-')[1].Trim().Replace('"', '').Replace(',', '').Trim()
-          $model2 = ($content -split '\n' | Select-String 'Allen_Mixed_Best').Line.Split('-')[1].Trim().Replace('"', '').Replace(',', '').Trim()
-          $model3 = ($content -split '\n' | Select-String 'Synthetic_data_final').Line.Split('-')[1].Trim().Replace('"', '').Replace(',', '').Trim()
-
-          echo "ELASTIX_WINDOWS_URL=$elastix_url" >> $env:GITHUB_ENV
-          echo "DEEPSLICE_BASE_URL=$deepslice_base_url" >> $env:GITHUB_ENV
-          echo "MODEL1=$model1" >> $env:GITHUB_ENV
-          echo "MODEL2=$model2" >> $env:GITHUB_ENV
-          echo "MODEL3=$model3" >> $env:GITHUB_ENV
 
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
@@ -45,24 +31,25 @@ jobs:
           conda-remove-defaults: true
 
       - name: Install conda-constructor
-        # BUG FIX 2 (Windows) : shell explicite pour que conda soit initialisé
         shell: bash -el {0}
         run: conda install -y constructor
 
       - name: Prepare Windows environment
+        shell: bash -el {0}
         run: |
-          Invoke-WebRequest -Uri "${{ env.ELASTIX_WINDOWS_URL }}" -OutFile "elastix.zip"
-          Expand-Archive -Path "elastix.zip" -DestinationPath "win\elastix-5.0.1-win64"
-          $deepslice_weights = "envs\deepslice\lib\site-packages\DeepSlice\metadata\weights"
-          New-Item -ItemType Directory -Force -Path $deepslice_weights
-          $models = @("${{ env.MODEL1 }}", "${{ env.MODEL2 }}", "${{ env.MODEL3 }}")
-          foreach ($model in $models) {
-            $url = "${{ env.DEEPSLICE_BASE_URL }}" + $model
-            $dest = Join-Path $deepslice_weights $model
-            if (-not (Test-Path $dest)) {
-              Invoke-WebRequest -Uri $url -OutFile $dest
-            }
-          }
+          curl -L "$ELASTIX_WINDOWS_URL" -o elastix.zip
+          unzip elastix.zip -d win/elastix-5.0.1-win64
+
+          weights_dir="envs/deepslice/lib/site-packages/DeepSlice/metadata/weights"
+          mkdir -p "$weights_dir"
+
+          for model in "$DEEPSLICE_MODEL1" "$DEEPSLICE_MODEL2" "$DEEPSLICE_MODEL3"; do
+            dest="$weights_dir/$model"
+            if [ ! -f "$dest" ]; then
+              curl -L "${DEEPSLICE_BASE_URL}${model}" -o "$dest"
+            fi
+          done
+
           tar -czvf abba-pack-win.tar.gz img win abba envs
 
       - name: Build installer
@@ -70,17 +57,19 @@ jobs:
         run: constructor .
 
       - name: List generated files (debug)
-        run: dir
+        shell: bash -el {0}
+        run: ls -la
 
       - name: Rename installer
+        shell: bash -el {0}
         run: |
-          $installer = Get-ChildItem -Filter "ABBA-*.exe"
-          if ($installer) {
-            Rename-Item -Path $installer.Name -NewName "ABBA-Installer-Windows-latest.exe"
-          } else {
-            Write-Error "Aucun installeur généré (fichier ABBA-*.exe introuvable)"
+          installer=$(ls ABBA-*.exe 2>/dev/null | head -n1)
+          if [ -n "$installer" ]; then
+            mv "$installer" "ABBA-Installer-Windows-latest.exe"
+          else
+            echo "Aucun installeur généré (fichier ABBA-*.exe introuvable)"
             exit 1
-          }
+          fi
 
       - name: Upload installer as artifact
         uses: actions/upload-artifact@v4
@@ -103,23 +92,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Read versions config
-        id: versions
-        run: |
-          # BUG FIX 1 (Linux) : awk '{print $2}' ne récupère que le mot après le premier espace,
-          # ce qui tronque les URLs. On utilise 'cut' pour tout prendre après le premier ': '
-          elastix_url=$(grep 'linux_url:' versions.yml | cut -d' ' -f2- | tr -d '"')
-          deepslice_base_url=$(grep 'base_url:' versions.yml | cut -d' ' -f2- | tr -d '"')
-          model1=$(grep 'xception_weights' versions.yml | awk '{print $2}' | tr -d '"' | tr -d ',')
-          model2=$(grep 'Allen_Mixed_Best' versions.yml | awk '{print $2}' | tr -d '"' | tr -d ',')
-          model3=$(grep 'Synthetic_data_final' versions.yml | awk '{print $2}' | tr -d '"' | tr -d ',')
-
-          echo "ELASTIX_LINUX_URL=$elastix_url" >> $GITHUB_ENV
-          echo "DEEPSLICE_BASE_URL=$deepslice_base_url" >> $GITHUB_ENV
-          echo "MODEL1=$model1" >> $GITHUB_ENV
-          echo "MODEL2=$model2" >> $GITHUB_ENV
-          echo "MODEL3=$model3" >> $GITHUB_ENV
-
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -128,38 +100,38 @@ jobs:
           conda-remove-defaults: true
 
       - name: Install conda-constructor
-        # BUG FIX 2 : sans 'shell: bash -el {0}', conda n'est pas initialisé
-        # dans le shell et la commande échoue avec exit code 1
         shell: bash -el {0}
         run: conda install -y constructor
 
-      - name: Prepare Debian environment
+      - name: Prepare Linux environment
         shell: bash -el {0}
         run: |
-          wget "${{ env.ELASTIX_LINUX_URL }}" -O elastix.tar.bz2
+          curl -L "$ELASTIX_LINUX_URL" -o elastix.tar.bz2
           mkdir -p linux
           tar -xjf elastix.tar.bz2 -C linux/
-          mkdir -p envs/deepslice/lib/python3.7/site-packages/DeepSlice/metadata/weights/
-          models=("${{ env.MODEL1 }}" "${{ env.MODEL2 }}" "${{ env.MODEL3 }}")
-          for model in "${models[@]}"; do
-            url="${{ env.DEEPSLICE_BASE_URL }}$model"
-            dest="envs/deepslice/lib/python3.7/site-packages/DeepSlice/metadata/weights/$model"
+
+          weights_dir="envs/deepslice/lib/python3.7/site-packages/DeepSlice/metadata/weights"
+          mkdir -p "$weights_dir"
+
+          for model in "$DEEPSLICE_MODEL1" "$DEEPSLICE_MODEL2" "$DEEPSLICE_MODEL3"; do
+            dest="$weights_dir/$model"
             if [ ! -f "$dest" ]; then
-              wget "$url" -O "$dest"
+              curl -L "${DEEPSLICE_BASE_URL}${model}" -o "$dest"
             fi
           done
+
           tar -czvf abba-pack-linux.tar.gz img linux abba envs
 
-      - name: Build Debian installer
+      - name: Build Linux installer
         shell: bash -el {0}
         run: constructor .
 
       - name: List generated files (debug)
         run: ls -la
 
-      - name: Rename Debian installer
+      - name: Rename Linux installer
         run: |
-          installer=$(ls ABBA-*.sh)
+          installer=$(ls ABBA-*.sh 2>/dev/null | head -n1)
           if [ -n "$installer" ]; then
             mv "$installer" "ABBA-Installer-Linux-latest.sh"
           else
